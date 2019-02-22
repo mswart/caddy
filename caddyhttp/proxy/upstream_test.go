@@ -663,6 +663,37 @@ func TestParseSRVBlock(t *testing.T) {
 	}
 }
 
+func TestParseResolveBlock(t *testing.T) {
+	tests := []struct {
+		config    string
+		shouldErr bool
+	}{
+		{`proxy / srv://bogus.service {
+		    resolver 127.0.0.1:8600
+		 }`, false},
+		{`proxy / srv://bogus.service {
+			resolver 127.0.0.53
+		 }`, false},
+		{`proxy / srv://bogus.service {
+			resolver
+		 }`, true},
+		{`proxy / srv://bogus.service {
+			resolver 127.0.0.1:8600 127.0.0.53
+		 }`, true},
+	}
+
+	for i, test := range tests {
+		_, err := NewStaticUpstreams(caddyfile.NewDispenser("Testfile", strings.NewReader(test.config)), "")
+		if err == nil && test.shouldErr {
+			t.Errorf("Case %d - Expected an error. got nothing", i)
+		}
+
+		if err != nil && !test.shouldErr {
+			t.Errorf("Case %d - Expected no error. got %s", i, err.Error())
+		}
+	}
+}
+
 type testResolver struct {
 	errOn  string
 	result []*net.SRV

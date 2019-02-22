@@ -202,6 +202,7 @@ func (p Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 					http.DefaultMaxIdleConnsPerHost,
 					upstream.GetTimeout(),
 					upstream.GetFallbackDelay(),
+					*net.DefaultResolver,
 				)
 			}
 

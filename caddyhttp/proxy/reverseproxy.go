@@ -99,7 +99,7 @@ type ReverseProxy struct {
 	// defaultDialer need to be overridden per Proxy
 	dialer *net.Dialer
 
-	srvResolver srvResolver
+	srvResolver net.Resolver
 }
 
 // Though the relevant directive prefix is just "unix:", url.Parse
@@ -127,7 +127,11 @@ func (rp *ReverseProxy) srvDialerFunc(locator string, timeout time.Duration) fun
 		if err != nil {
 			return nil, err
 		}
-		return net.DialTimeout("tcp", fmt.Sprintf("%s:%d", addrs[0].Target, addrs[0].Port), timeout)
+		d := net.Dialer{
+			Timeout: timeout,
+			Resolver: &rp.srvResolver,
+		}
+		return d.Dial("tcp", fmt.Sprintf("%s:%d", addrs[0].Target, addrs[0].Port))
 	}
 }
 
@@ -149,7 +153,7 @@ func singleJoiningSlash(a, b string) string {
 // the target request will be for /base/dir.
 // Without logic: target's path is "/", incoming is "/api/messages",
 // without is "/api", then the target request will be for /messages.
-func NewSingleHostReverseProxy(target *url.URL, without string, keepalive int, timeout, fallbackDelay time.Duration) *ReverseProxy {
+func NewSingleHostReverseProxy(target *url.URL, without string, keepalive int, timeout, fallbackDelay time.Duration, resolver net.Resolver) *ReverseProxy {
 	targetQuery := target.RawQuery
 	director := func(req *http.Request) {
 		if target.Scheme == "unix" {
@@ -242,7 +246,7 @@ func NewSingleHostReverseProxy(target *url.URL, without string, keepalive int, t
 	rp := &ReverseProxy{
 		Director:      director,
 		FlushInterval: 250 * time.Millisecond, // flushing good for streaming & server-sent events
-		srvResolver:   net.DefaultResolver,
+		srvResolver:   resolver,
 		dialer:        &dialer,
 	}
 

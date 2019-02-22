@@ -69,7 +69,7 @@ type staticUpstream struct {
 	IgnoredSubPaths    []string
 	insecureSkipVerify bool
 	MaxFails           int32
-	resolver           srvResolver
+	resolver           net.Resolver
 	CaCertPool         *x509.CertPool
 }
 
@@ -97,7 +97,7 @@ func NewStaticUpstreams(c caddyfile.Dispenser, host string) ([]Upstream, error) 
 			MaxConns:          0,
 			KeepAlive:         http.DefaultMaxIdleConnsPerHost,
 			Timeout:           30 * time.Second,
-			resolver:          net.DefaultResolver,
+			resolver:          *net.DefaultResolver,
 		}
 
 		if !c.Args(&upstream.from) {
@@ -168,6 +168,7 @@ func NewStaticUpstreams(c caddyfile.Dispenser, host string) ([]Upstream, error) 
 				Timeout: upstream.HealthCheck.Timeout,
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: upstream.insecureSkipVerify},
+					DialContext: (&net.Dialer{Resolver: &upstream.resolver}).DialContext,
 				},
 			}
 
@@ -230,7 +231,7 @@ func (u *staticUpstream) NewHost(host string) (*UpstreamHost, error) {
 		return nil, err
 	}
 
-	uh.ReverseProxy = NewSingleHostReverseProxy(baseURL, uh.WithoutPathPrefix, u.KeepAlive, u.Timeout, u.FallbackDelay)
+	uh.ReverseProxy = NewSingleHostReverseProxy(baseURL, uh.WithoutPathPrefix, u.KeepAlive, u.Timeout, u.FallbackDelay, u.resolver)
 	if u.insecureSkipVerify {
 		uh.ReverseProxy.UseInsecureTransport()
 	}
@@ -471,6 +472,27 @@ func parseBlock(c *caddyfile.Dispenser, u *staticUpstream, hasSrv bool) error {
 		u.IgnoredSubPaths = ignoredPaths
 	case "insecure_skip_verify":
 		u.insecureSkipVerify = true
+	case "resolver":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+		resolverAddr := c.Val()
+		// try to split address in host and port
+		_, _, err := net.SplitHostPort(resolverAddr)
+		if err != nil {
+			resolverAddr += ":53"
+			_, _, err = net.SplitHostPort(resolverAddr)
+			if err != nil {
+				return c.Errf("invalid resolver address '%s'", c.Val())
+			}
+		}
+		u.resolver = net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, network, resolverAddr)
+			},
+		}
 	case "ca_certificates":
 		caCertificates := c.RemainingArgs()
 		if len(caCertificates) == 0 {
